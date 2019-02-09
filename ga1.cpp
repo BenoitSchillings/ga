@@ -471,7 +471,7 @@ void expression::evaluate(eval *e)
 void expression::build(int depth)
 {
 
-    if (depth > 30) {
+    if (len > 30) {
         printf("LARGE EXP ??\n");
         exit(-1);
     }
