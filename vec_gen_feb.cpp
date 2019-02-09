@@ -121,7 +121,7 @@ void finder::init_samplef()
         float x, y;
         scanf("%f,%f\n", &x, &y);
         inputs[0][i_count] = x;
-        output[i_count] = y;
+        output[i_count] = y + RND/20.0;
     }
 }
 
@@ -833,7 +833,7 @@ void    population::cross(float ratio, float up)
                         
                         
                         t = build_child(pop[parent1].a_tree, pop[parent2].a_tree);
-                        if (length(t) > 25) {
+                        if (length(t) > 35) {
                                 destroy(t);
                                 t = 0;
                         }

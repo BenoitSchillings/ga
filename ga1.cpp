@@ -154,7 +154,8 @@ string to_string(node n)
     if (n.op == EXP) {
         return("exp");
     }
-    
+    printf("n.op = %d, n.arity = %d @ %d\n", n.op, n.arity);
+
     return("?????");
 }
 
@@ -226,6 +227,7 @@ expression::expression(int depth)
     
     trace = 0;
     max_depth = depth;
+    this->gen_expression();
 }
 
 //---------------------------------------------------------------
@@ -351,6 +353,7 @@ int expression::run(int idx)
         return(left);
     }
     printf("?????\n");
+    printf("current.op = %d, current.arity = %d @ %d\n", current.op, current.arity, idx);
     return(-1);
 }
 
@@ -472,6 +475,8 @@ void expression::build(int depth)
         printf("LARGE EXP ??\n");
         exit(-1);
     }
+    
+    
     if (depth == 0) {           //terminal nodes
         node tmp = get_rand_arity0_node();
         data[len] = tmp;
@@ -481,12 +486,21 @@ void expression::build(int depth)
     
     int arity = brand()%3;
     
+    
+// kind of a hack to make expression at least 2 level deep
+
+
+    while (arity == 0 && len < 3) {
+        arity = brand()%3;
+    }
+    
     if (arity == 0) {
         node tmp = get_rand_arity0_node();
         data[len] = tmp;
         len++;
         return;
     }
+    
     if (arity == 1) {
         node tmp = get_rand_arity1_node();
         data[len] = tmp;
@@ -494,6 +508,7 @@ void expression::build(int depth)
         build(depth - 1);
         return;
     }
+    
     if (arity == 2) {
         node tmp = get_rand_arity2_node();
         data[len] = tmp;
@@ -502,6 +517,8 @@ void expression::build(int depth)
         build(depth - 1);
         return;
     }
+    
+    
     printf("ERROR in BUILD\n");
 }
 
@@ -733,53 +750,90 @@ void eval::init_sample()
 //---------------------------------------------------------------
 // genetics
 
+
 void cross(expression *p1, expression *p2)
 {
-    int     idx1 = p1->len;
-    int     idx2 = p2->len;
+    int     idx1;
     
-    int     sp1 = 0;
-    int     sp2 = 0;
+    int     st = 0;
     
     node    n1;
-    node    n2;
     
-    while(idx1 >= 0 && idx2 >= 0) {
+    int     sts1[MAX_EXP];
+    int     sts2[MAX_EXP];
+    
+    idx1 = p1->len - 1;
+    
+    while(idx1 >= 0) {
         n1 = p1->data[idx1];
-        idx1--;
         
         if (n1.arity == 0) {
-            sp1++;
+            st += 1;
         }
         
         if (n1.arity == 1) {
-            sp1 = sp1;
+            st = st;
         }
         
         if (n1.arity == 2) {
-            sp1--;
+            st -= 1;
+        }
+        sts1[idx1] = st;
+        //printf("stack1 %d %d %d\n", idx1, st, n1.arity);
+        idx1--;
+    }
+    
+    idx1 = p2->len - 1;
+    st = 0;
+    
+    
+    while(idx1 >= 0) {
+        n1 = p2->data[idx1];
+        
+        if (n1.arity == 0) {
+            st += 1;
         }
         
-        
-        n2 = p2->data[idx2];
-        idx2--;
-        
-        if (n2.arity == 0) {
-            sp2++;
+        if (n1.arity == 1) {
+            st = st;
         }
         
-        if (n2.arity == 1) {
-            sp2 = sp2;
+        if (n1.arity == 2) {
+            st -= 1;
         }
+        sts2[idx1] = st;
+        //printf("stack2 %d %d %d\n", idx1, st, n1.arity);
+        idx1--;
+    }
+   
+   
+    int best_distance = 32768;
+    int best_i1 = -1;
+    int best_i2 = -1;
+    
+    for (int i1 = 0; i1 < p1->len; i1++) {
+        for (int i2 = 0; i2 < p2->len; i2++) {
+            if (sts1[i1] == sts2[i2]) {
+                int distance = abs(i1 - (p1->len>>1)) + abs(i2 - (p2->len>>1));
+                //printf("%d %d, %d\n", i1, i2, distance);
+                if (distance < best_distance) {
+                    best_distance = distance;
+                    best_i1 = i1;
+                    best_i2 = i2;
+                }
+            }
+        }
+    }    
+    //printf("len %d len %d\n", p1->len, p2->len);
+    //printf("best %d %d\n", best_i1, best_i2);
+    if (best_i1 != -1 && best_i2 != -1) {
+        p2->len = best_i2;
         
-        if (n2.arity == 2) {
-            sp2--;
-        }
-
-        if (n1.arity == n2.arity && sp1 == sp2) {
-            p1->data[idx1] = n2;
-            p2->data[idx2] = n1;
-        }
+        while(best_i1 < p1->len) {
+            //printf("copy %d %d\n", best_i1, best_i2);
+            p2->data[best_i2++] = p1->data[best_i1++];
+            p2->len++;
+        }    
     }
 }
 
@@ -799,7 +853,62 @@ void print(expression *p)
 
 class population {
 public:
+    expression **vec;
+    float      *evals;
+    int        count;
+    
+            population(int p_count);
+            ~population();
+        
+    void    evaluate(eval *e);    
 };
+
+//---------------------------------------------------------------
+
+    population::population(int p_count)
+{
+    count = p_count;
+    
+    vec = (expression **)malloc(sizeof(expression*) * count);
+    evals = (float *)malloc(sizeof(float) * count);
+    
+    
+    for (int i = 0; i < count; i++) {
+        printf("x %d\n", i);
+        vec[i] = new expression(6);
+    }
+}
+
+
+//---------------------------------------------------------------
+
+    population::~population()
+{
+    for (int i = 0; i < count; i++) {
+        delete vec[i];
+    }
+    free((char*)vec);
+    free((char*)evals);
+}
+
+
+//---------------------------------------------------------------
+
+
+void population::evaluate(eval *e)
+{
+    for (int i = 0; i < count; i++) {
+        vec[i]->evaluate(e);
+        float v = e->error();
+        evals[i] = v;
+    }
+}
+
+
+//---------------------------------------------------------------
+
+
+
 
 //---------------------------------------------------------------
 
@@ -808,40 +917,8 @@ int main()
     rx = time(NULL);
     eval ev(5);
     ev.init_sample();
-   
-    expression e1(5);
-    expression e2(5);
-    e1.gen_expression();
-    e2.gen_expression();
-
-    print(&e1);
-    print(&e2);
-    
-    cross(&e1, &e2);
-    
-    print(&e1);
-    print(&e2);
-   
-    return 0;
-    
-    
-    ev.trace = 0;
-    
-//    ev.print_stack(0);
-//    ev.print_stack(1);
-  
-  
-    float min_error = 1e20;
-    while(1)
-    for (long i = 0; i < 10*1000*1000; i++) {  
-        e1.gen_expression();
-        e1.evaluate(&ev);
-        float error = ev.error();
-        if (error < min_error) {
-            min_error = error;
-            printf("%ld, new error %f\n", i, error);
-            print(&e1);
-         }
-    }
+    printf("x1\n");
+    population p(1000);
+    printf("x2\n");
     return 0;
 }
