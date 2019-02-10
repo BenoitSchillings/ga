@@ -15,10 +15,16 @@ using namespace std;
 std::random_device rd;
 std::mt19937 e2(rd());
 
-std::uniform_real_distribution<> dist(-1, 1);
+std::uniform_real_distribution<> dist(-3, 3);
+std::uniform_real_distribution<> dmult(0.95, 1.05);
+std::uniform_real_distribution<> d02(0.05, 0.9);
+std::uniform_real_distribution<> dsmall(-0.01, 0.01);
 
 //---------------------------------------------------------------
 #define RND dist(e2)
+#define RNDM dmult(e2)
+#define CMD d02(e2)
+#define RNDX dsmall(e2)
 //---------------------------------------------------------------
 static unsigned long rx=123456789, ry=362436069, rz=521288629;
 //---------------------------------------------------------------
@@ -39,7 +45,7 @@ unsigned long brand(void) {          //period 2^96-1
 
 //---------------------------------------------------------------
 
-#define MAX_EXP 50
+#define MAX_EXP 100
 #define uchar unsigned char
 
 //---------------------------------------------------------------
@@ -57,6 +63,7 @@ class fvector {
 public:
     float   *vec;
     fvector();
+    ~fvector();
 };
 
 //---------------------------------------------------------------
@@ -64,6 +71,13 @@ public:
 fvector::fvector()
 {
     vec = new float[32];
+}
+
+//---------------------------------------------------------------
+
+fvector::~fvector()
+{
+    delete vec;
 }
 
 //---------------------------------------------------------------
@@ -86,7 +100,7 @@ public:
     void    cst(float v, int result);
     void    var(int idx, int result);
     void    print_stack(int idx);
-
+    
     
     float    error();
     
@@ -114,6 +128,7 @@ private:;
 #define SQ      101
 #define SQRT    102
 #define EXP     103
+#define NOP     104
 
 //---------------------------------------------------------------
 
@@ -151,11 +166,14 @@ string to_string(node n)
     if (n.op == SQRT) {
         return("sqrt");
     }
-    if (n.op == EXP) {
+     if (n.op == NOP) {
+        return("nop");
+    }
+   if (n.op == EXP) {
         return("exp");
     }
     printf("n.op = %d, n.arity = %d @ %d\n", n.op, n.arity);
-
+    
     return("?????");
 }
 
@@ -183,10 +201,11 @@ public:
     int     len;
     int     trace;
     int     max_depth;
+    float   error;
 public:
     expression(int depth);
     void    gen_expression();
-
+    void    copy(expression *e);
 private:
     void    build(int depth);
     node    get_rand_terminal_node();
@@ -198,15 +217,31 @@ private:
     void    get_arity_1(node n, eval *e, int result);
     void    get_arity_2(node n, eval *e, int v1, int v2, int result);
 public:
-
+    
     string  to_algebraic(short *idx);
-
+    
     void    dump();
     int     run(int idx);
     int     val(eval *e, int idx);
     void    evaluate(eval *e);
     void    cross(expression *p1);
+    void    mutate();
 };
+
+//---------------------------------------------------------------
+
+void expression::copy(expression *e)
+{
+    int     i;
+    
+    for (int i = 0; i < len; i++) {
+        e->data[i] = data[i];
+    }
+    e->len = len;
+    e->max_depth = max_depth;
+    e->error = error;
+    e->trace = trace;
+}
 
 //---------------------------------------------------------------
 
@@ -228,6 +263,21 @@ expression::expression(int depth)
     trace = 0;
     max_depth = depth;
     this->gen_expression();
+    error = 1e9;
+}
+
+//---------------------------------------------------------------
+
+void expression::mutate()
+{
+    int     i;
+    
+    for (i = 0; i < len; i++) {
+        if (data[i].op == CONST) {
+            data[i].val *= RNDM;
+            //data[i].val += RNDX;
+        }
+    }
 }
 
 //---------------------------------------------------------------
@@ -250,7 +300,7 @@ node expression::get_rand_arity0_node()
     if (randv == 0) {
         tmp.op = VAR;
         tmp.var = brand() % VAR_COUNT;
-       
+        
         tmp.val = 0;
         tmp.arity = 0;
     }
@@ -258,7 +308,21 @@ node expression::get_rand_arity0_node()
     if (randv == 1) {
         tmp.op = CONST;
         tmp.var = 0;
-        tmp.val = RND;
+        /*
+        int rand1 = brand() % 32768;
+        
+        if (rand1 > 31000)
+            tmp.val = 3.1415926535897932384626433;
+        else if (rand1 < 30000)
+            tmp.val = 1.0;
+        else if (rand1 < 29000)
+            tmp.val = 2.0;
+        else if (rand1 < 28000)
+            tmp.val = 2.718281828;
+        else
+        */
+            tmp.val = RND;
+        
         tmp.arity = 0;
     }
     
@@ -396,6 +460,10 @@ void expression::get_arity_1(node n, eval *e, int result)
         return;
     }
     
+    if (n.op == NOP) {
+        return;
+    }
+    
 }
 
 //---------------------------------------------------------------
@@ -470,8 +538,8 @@ void expression::evaluate(eval *e)
 
 void expression::build(int depth)
 {
-
-    if (len > 30) {
+    
+    if (len >= MAX_EXP) {
         printf("LARGE EXP ??\n");
         exit(-1);
     }
@@ -487,9 +555,9 @@ void expression::build(int depth)
     int arity = brand()%3;
     
     
-// kind of a hack to make expression at least 2 level deep
-
-
+    // kind of a hack to make expression at least 2 level deep
+    
+    
     while (arity == 0 && len < 3) {
         arity = brand()%3;
     }
@@ -543,7 +611,8 @@ float eval::error()
         e = e * e;
         sum += e;
     }
-    if (isnan(abs(sum))) sum = 1e9;
+    sum = sum / (1.0*sample_count);
+    sum = sqrt(sum);
     return sum;
 }
 
@@ -578,7 +647,7 @@ void eval::sub(int v1, int v2, int result)
     p2 = stack[v2].vec;
     r = stack[result].vec;
     if (trace) printf("sub %d %d %d\n", v1, v2, result);
-
+    
     for (int i = 0; i < sample_count; i++) {
         *r++ = *p1++ - *p2++;
     }
@@ -596,7 +665,7 @@ void eval::mul(int v1, int v2, int result)
     p2 = stack[v2].vec;
     r = stack[result].vec;
     if (trace) printf("mul %d %d %d\n", v1, v2, result);
-
+    
     for (int i = 0; i < sample_count; i++) {
         *r++ = *p1++ * *p2++;
     }
@@ -614,7 +683,7 @@ void eval::div(int v1, int v2, int result)
     float *r;
     
     if (trace) printf("div %d %d %d\n", v1, v2, result);
-
+    
     p1 = stack[v1].vec;
     p2 = stack[v2].vec;
     r = stack[result].vec;
@@ -634,10 +703,10 @@ void eval::expo(int v1, int result)
     float *r;
     
     if (trace) printf("exp %d %d\n", v1, result);
-
+    
     p1 = stack[v1].vec;
     r = stack[result].vec;
-
+    
     for (int i = 0; i < sample_count; i++) {
         *r++ = pow(2.71828182, *p1++);
     }
@@ -650,7 +719,7 @@ void eval::cst(float v, int result)
     float *r;
     
     if (trace) printf("cst %f -> %d\n", v, result);
-
+    
     r = stack[result].vec;
     
     for (int i = 0; i < sample_count; i++) {
@@ -663,11 +732,11 @@ void eval::cst(float v, int result)
 void eval::var(int idx, int result)
 {
     float *r;
-
+    
     if (trace) printf("var %d\n", result);
-
+    
     r = stack[result].vec;
-
+    
     for (int i = 0; i < sample_count; i++) {
         *r++ = inputs[idx].vec[i];
     }
@@ -684,7 +753,7 @@ void eval::vsqr(int v1, int result)
     
     p1 = stack[v1].vec;
     r = stack[result].vec;
-
+    
     for (int i = 0; i < sample_count; i++) {
         *r++ = *p1 * *p1;
         p1++;
@@ -742,7 +811,7 @@ void eval::init_sample()
 #define Y inputs[1].vec[i]
     
     for (int i = 0; i < sample_count; i++) {
-        output.vec[i] = 1.0+sin(X/2.0) + sin(Y);
+        output.vec[i] = 1.0+sin(X/2.0) + sin(Y-X);
     }
 }
 
@@ -805,8 +874,8 @@ void cross(expression *p1, expression *p2)
         //printf("stack2 %d %d %d\n", idx1, st, n1.arity);
         idx1--;
     }
-   
-   
+    
+    
     int best_distance = 32768;
     int best_i1 = -1;
     int best_i2 = -1;
@@ -816,6 +885,9 @@ void cross(expression *p1, expression *p2)
             if (sts1[i1] == sts2[i2]) {
                 int distance = abs(i1 - (p1->len>>1)) + abs(i2 - (p2->len>>1));
                 //printf("%d %d, %d\n", i1, i2, distance);
+                
+                //int distance = brand() % 100;
+                
                 if (distance < best_distance) {
                     best_distance = distance;
                     best_i1 = i1;
@@ -823,7 +895,7 @@ void cross(expression *p1, expression *p2)
                 }
             }
         }
-    }    
+    }
     //printf("len %d len %d\n", p1->len, p2->len);
     //printf("best %d %d\n", best_i1, best_i2);
     if (best_i1 != -1 && best_i2 != -1) {
@@ -833,7 +905,7 @@ void cross(expression *p1, expression *p2)
             //printf("copy %d %d\n", best_i1, best_i2);
             p2->data[best_i2++] = p1->data[best_i1++];
             p2->len++;
-        }    
+        }
     }
 }
 
@@ -845,7 +917,7 @@ void print(expression *p)
     short pos = 0;
     
     string s = p->to_algebraic(&pos);
-    printf("%s\n", s.c_str());
+    printf("%4.4f %s\n", p->error, s.c_str());
 }
 
 //---------------------------------------------------------------
@@ -854,27 +926,76 @@ void print(expression *p)
 class population {
 public:
     expression **vec;
-    float      *evals;
     int        count;
     
-            population(int p_count);
-            ~population();
-        
-    void    evaluate(eval *e);    
+    population(int p_count);
+    ~population();
+    
+    void    evaluate(eval *e);
+    void    sort_population();
+    void    crossing(float elite);
+    void    display_population();
+    void    new_gen(float ratio);
+    void    mutate(float ratio);
+private:
+    void    shellsort(expression **p, int num);
 };
 
 //---------------------------------------------------------------
 
-    population::population(int p_count)
+void population::crossing(float elite)
+{
+    int         e_border = count * elite;
+    expression  tmp(0);
+    
+    for (int idx = 0; idx < count; idx++) {
+        int     parent1 = brand() % (e_border);
+        int     parent2 = 152 + brand() % (e_border-152);
+        vec[parent2]->copy(&tmp);
+        cross(vec[parent1], &tmp);
+        
+        if (tmp.len < 16)
+            tmp.copy(vec[parent2]);
+        else {
+            if (brand() % 44 == 0)
+                vec[parent1]->copy(vec[parent2]);
+        }
+    }
+}
+
+//---------------------------------------------------------------
+
+void population::mutate(float ratio)
+{
+    int     new_count = count * ratio;
+    
+    for (int idx = 0; idx < new_count; idx++) {
+        vec[1 + (brand()%(count-1))]->mutate();
+    }
+}
+
+//---------------------------------------------------------------
+
+void population::new_gen(float ratio)
+{
+    int     new_count = count * ratio;
+    
+    for (int idx = 1; idx < new_count; idx++) {
+        vec[count - idx]->gen_expression();
+    }
+}
+
+
+//---------------------------------------------------------------
+
+population::population(int p_count)
 {
     count = p_count;
     
     vec = (expression **)malloc(sizeof(expression*) * count);
-    evals = (float *)malloc(sizeof(float) * count);
     
     
     for (int i = 0; i < count; i++) {
-        printf("x %d\n", i);
         vec[i] = new expression(6);
     }
 }
@@ -882,13 +1003,12 @@ public:
 
 //---------------------------------------------------------------
 
-    population::~population()
+population::~population()
 {
     for (int i = 0; i < count; i++) {
         delete vec[i];
     }
     free((char*)vec);
-    free((char*)evals);
 }
 
 
@@ -900,25 +1020,126 @@ void population::evaluate(eval *e)
     for (int i = 0; i < count; i++) {
         vec[i]->evaluate(e);
         float v = e->error();
-        evals[i] = v;
+        //v = i/100.0;
+        if (!isnormal(v))
+            v = 1e10;
+        
+        //printf("%4.4f\n", v);
+        vec[i]->error = v * (100.0 + vec[i]->len)/100.0;
     }
 }
 
 
 //---------------------------------------------------------------
 
+int cmp(const void* p1, const void* p2)
+{
+    expression *i1, *i2;
+    
+    i1 = *((expression**)p1);
+    i2 = *((expression**)p2);
+    
+    float v1 = i1->error;
+    float v2 = i2->error;
+    
+    return(v1 < v2);
+}
 
 
+//---------------------------------------------------------------
+
+void population::shellsort(expression **p, int num)
+{
+    int i, j, k;
+    expression *tmp;
+    
+    for (i = num / 2; i > 0; i = i / 2)
+    {
+        for (j = i; j < num; j++)
+        {
+            for(k = j - i; k >= 0; k = k - i)
+            {
+                if (p[k+i]->error >= p[k]->error)
+                    break;
+                else
+                {
+                    tmp = p[k];
+                    p[k] = p[k+i];
+                    p[k+i] = tmp;
+                }
+            }
+        }
+    }
+}
+
+//---------------------------------------------------------------
+
+void population::sort_population()
+{
+    shellsort(vec, count);
+}
+
+//---------------------------------------------------------------
+
+void population::display_population()
+{
+    int i;
+    
+    for (i = 0; i < 40;i++) {
+        print(vec[i]);
+    }
+    
+}
+
+//---------------------------------------------------------------
+
+void gotoxy(int x,int y)
+{
+        printf("%c[%d;%df",0x1B,y,x);
+}
+
+//---------------------------------------------------------------
+
+void cls()
+{
+    printf("\033[2J\033[1;1H");
+}
+
+//---------------------------------------------------------------
+
+float tryx(float newg)
+{
+    rx = time(NULL);
+    eval ev(15);
+    ev.init_sample();
+    population p(10000);
+    
+    
+    
+    for (int i = 0; i < 801100; i++) {
+        p.evaluate(&ev);
+        p.sort_population();
+        p.new_gen(0.1);
+        p.crossing(0.4);    // see https://docs.google.com/spreadsheets/d/1TJWPCB-mIWW9WyfOPP8lo4F2v1aETUWIP_Ils68MWtE/edit#gid=0
+        p.mutate(0.2);
+        if (i % 300 == 0) {
+            cls(); gotoxy(1,1);
+            p.display_population();
+        }
+        if (p.vec[0]->error > 0.2 && (i > 4000))
+            break;
+    }
+    return p.vec[0]->error;
+}
 
 //---------------------------------------------------------------
 
 int main()
 {
-    rx = time(NULL);
-    eval ev(5);
-    ev.init_sample();
-    printf("x1\n");
-    population p(1000);
-    printf("x2\n");
+    for (int tt = 0; tt < 1000; tt++) {
+        float cmd = CMD;
+        float t = tryx(cmd);
+        printf("%f, %f\n", cmd, t);
+    }
     return 0;
 }
