@@ -865,6 +865,7 @@ void    population::extinction()
                 pop[new_p].a_tree = a_finder->build_tree(sz());
         }
 }
+
 //---------------------------------------------------------------
 
 void    population::kill_twins()

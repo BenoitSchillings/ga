@@ -13,18 +13,19 @@ using namespace std;
 //---------------------------------------------------------------
 
 std::random_device rd;
-std::mt19937 e2(rd());
+//std::mt19937 e2(rd());
+std::mt19937 e2(10);
 
 std::uniform_real_distribution<> dist(-3, 3);
 std::uniform_real_distribution<> dmult(0.95, 1.05);
 std::uniform_real_distribution<> d02(0.05, 0.9);
-std::uniform_real_distribution<> dsmall(-0.01, 0.01);
+std::uniform_real_distribution<> dsmall(-0.02, 0.02);
 
 //---------------------------------------------------------------
 #define RND dist(e2)
 #define RNDM dmult(e2)
 #define CMD d02(e2)
-#define RNDX dsmall(e2)
+#define NOISE dsmall(e2)
 //---------------------------------------------------------------
 static unsigned long rx=123456789, ry=362436069, rz=521288629;
 //---------------------------------------------------------------
@@ -308,7 +309,7 @@ node expression::get_rand_arity0_node()
     if (randv == 1) {
         tmp.op = CONST;
         tmp.var = 0;
-        /*
+        
         int rand1 = brand() % 32768;
         
         if (rand1 > 31000)
@@ -320,7 +321,7 @@ node expression::get_rand_arity0_node()
         else if (rand1 < 28000)
             tmp.val = 2.718281828;
         else
-        */
+        
             tmp.val = RND;
         
         tmp.arity = 0;
@@ -811,7 +812,7 @@ void eval::init_sample()
 #define Y inputs[1].vec[i]
     
     for (int i = 0; i < sample_count; i++) {
-        output.vec[i] = 1.0+sin(X/2.0) + sin(Y-X);
+        output.vec[i] = NOISE + 1.0+sin(X/2.0) + sin(Y-X) + sin(X+Y);
     }
 }
 
@@ -921,6 +922,7 @@ void print(expression *p)
 }
 
 //---------------------------------------------------------------
+#define PSIZE 11500
 
 
 class population {
@@ -928,7 +930,7 @@ public:
     expression **vec;
     int        count;
     
-    population(int p_count);
+    population();
     ~population();
     
     void    evaluate(eval *e);
@@ -937,6 +939,8 @@ public:
     void    display_population();
     void    new_gen(float ratio);
     void    mutate(float ratio);
+    void    mutate_top(int n);
+    void    kill_twins();
 private:
     void    shellsort(expression **p, int num);
 };
@@ -948,17 +952,18 @@ void population::crossing(float elite)
     int         e_border = count * elite;
     expression  tmp(0);
     
-    for (int idx = 0; idx < count; idx++) {
+    for (int idx = 0; idx < (count/2); idx++) {
         int     parent1 = brand() % (e_border);
-        int     parent2 = 152 + brand() % (e_border-152);
+        int     parent2 = 122 + brand() % (count-122);
         vec[parent2]->copy(&tmp);
         cross(vec[parent1], &tmp);
         
-        if (tmp.len < 16)
+        if (tmp.len < 28)
             tmp.copy(vec[parent2]);
         else {
-            if (brand() % 44 == 0)
+            if (brand() % 3 == 0)
                 vec[parent1]->copy(vec[parent2]);
+            vec[parent2]->mutate();
         }
     }
 }
@@ -976,6 +981,18 @@ void population::mutate(float ratio)
 
 //---------------------------------------------------------------
 
+void population::mutate_top(int n)
+{
+    for (int idx = 0; idx < n; idx++) {
+        int target = 1+brand() % (count-1);
+        
+        vec[0]->copy(vec[target]);
+        vec[target]->mutate();
+    }
+}
+
+//---------------------------------------------------------------
+
 void population::new_gen(float ratio)
 {
     int     new_count = count * ratio;
@@ -988,15 +1005,15 @@ void population::new_gen(float ratio)
 
 //---------------------------------------------------------------
 
-population::population(int p_count)
+population::population()
 {
-    count = p_count;
+    count = PSIZE;
     
     vec = (expression **)malloc(sizeof(expression*) * count);
     
     
     for (int i = 0; i < count; i++) {
-        vec[i] = new expression(6);
+        vec[i] = new expression(5);
     }
 }
 
@@ -1011,6 +1028,20 @@ population::~population()
     free((char*)vec);
 }
 
+
+//---------------------------------------------------------------
+
+void population::kill_twins()
+{
+    for (int i = 1; i < count; i++) {
+        float e0 = vec[i]->error;
+        float e1 = vec[i-1]->error;
+        
+        if (fabs(e0 - e1) < 0.0001) {
+            vec[i]->gen_expression();
+        }
+    }
+}
 
 //---------------------------------------------------------------
 
@@ -1085,7 +1116,7 @@ void population::display_population()
 {
     int i;
     
-    for (i = 0; i < 40;i++) {
+    for (i = 0; i < 1;i++) {
         print(vec[i]);
     }
     
@@ -1107,29 +1138,72 @@ void cls()
 
 //---------------------------------------------------------------
 
+void swap_pop(population *p1, population *p2)
+{
+    int         i;
+    
+    for (int i = 0; i < 20; i++) {
+        int i1 = 1+brand()%(p1->count-1);
+        int i2 = 1+brand()%(p2->count-1);
+        p1->vec[i1]->copy(p2->vec[i2]);
+    }
+}
+
+//---------------------------------------------------------------
+
+#define NP  68          //number of populations
+
 float tryx(float newg)
 {
     rx = time(NULL);
+    //rx = 15;
     eval ev(15);
     ev.init_sample();
-    population p(10000);
-    
+    population  pops[NP];
     
     
     for (int i = 0; i < 801100; i++) {
-        p.evaluate(&ev);
-        p.sort_population();
-        p.new_gen(0.1);
-        p.crossing(0.4);    // see https://docs.google.com/spreadsheets/d/1TJWPCB-mIWW9WyfOPP8lo4F2v1aETUWIP_Ils68MWtE/edit#gid=0
-        p.mutate(0.2);
-        if (i % 300 == 0) {
-            cls(); gotoxy(1,1);
-            p.display_population();
+        for (int pn = 0; pn < NP; pn++) {
+            pops[pn].evaluate(&ev);
+            pops[pn].sort_population();
+            pops[pn].kill_twins();
+            pops[pn].new_gen(0.1);
+            pops[pn].crossing(0.4);    // see https://docs.google.com/spreadsheets/d/1TJWPCB-mIWW9WyfOPP8lo4F2v1aETUWIP_Ils68MWtE/edit#gid=0
+            pops[pn].mutate(0.2);
+            pops[pn].mutate_top(10);
         }
-        if (p.vec[0]->error > 0.2 && (i > 4000))
-            break;
+        
+        if (i % 130 == 0) {
+            cls(); gotoxy(1,1);
+            for (int i = 0; i < NP; i++) {
+                pops[i].evaluate(&ev);
+                pops[i].sort_population();
+                pops[i].display_population();
+                //printf("\n");
+            }
+            
+        }
+        
+        int     p1;
+        int     p2;
+        
+        p1 = brand() % NP/2;
+        p2 = brand() % NP/2;
+        
+        swap_pop(&pops[p1], &pops[p2]);
+        
+        p1 = NP/2 + brand() % NP/2;
+        p2 = NP/2 + brand() % NP/2;
+        swap_pop(&pops[p1], &pops[p2]);
+
+        if (i % 200 == 0) {
+            p1 = brand() % NP;
+            p2 = brand() % NP;
+            swap_pop(&pops[p1], &pops[p2]);
+
+        }
     }
-    return p.vec[0]->error;
+    return pops[0].vec[0]->error;
 }
 
 //---------------------------------------------------------------
