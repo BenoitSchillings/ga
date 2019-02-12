@@ -881,13 +881,28 @@ void cross(expression *p1, expression *p2)
     int best_i1 = -1;
     int best_i2 = -1;
     
+    
+    for (int trys = 0; trys < 200; trys++) {
+        int cross1 = brand()%p1->len;
+        int cross2 = brand()%p2->len;
+        
+        if (sts1[cross1] == sts2[cross2]) {
+            best_i1 = cross1;
+            best_i2 = cross2;
+            goto out;
+        }
+    }
+    
+    out:;
+    
+    if (best_i1 < 0)
     for (int i1 = 0; i1 < p1->len; i1++) {
         for (int i2 = 0; i2 < p2->len; i2++) {
             if (sts1[i1] == sts2[i2]) {
-                int distance = abs(i1 - (p1->len>>1)) + abs(i2 - (p2->len>>1));
+                //int distance = abs(i1 - (p1->len>>1)) + abs(i2 - (p2->len>>1));
                 //printf("%d %d, %d\n", i1, i2, distance);
                 
-                //int distance = brand() % 100;
+                int distance = brand() % 100;
                 
                 if (distance < best_distance) {
                     best_distance = distance;
@@ -922,7 +937,7 @@ void print(expression *p)
 }
 
 //---------------------------------------------------------------
-#define PSIZE 11500
+#define PSIZE 1200
 
 
 class population {
@@ -941,6 +956,7 @@ public:
     void    mutate(float ratio);
     void    mutate_top(int n);
     void    kill_twins();
+    void    extinction(int n);
 private:
     void    shellsort(expression **p, int num);
 };
@@ -952,20 +968,28 @@ void population::crossing(float elite)
     int         e_border = count * elite;
     expression  tmp(0);
     
-    for (int idx = 0; idx < (count/2); idx++) {
+    for (int idx = e_border+1; idx < (count); idx++) {
         int     parent1 = brand() % (e_border);
-        int     parent2 = 122 + brand() % (count-122);
+        int     parent2 = brand() % (e_border);
         vec[parent2]->copy(&tmp);
         cross(vec[parent1], &tmp);
         
-        if (tmp.len < 28)
-            tmp.copy(vec[parent2]);
+        if (tmp.len < 23)
+            tmp.copy(vec[idx]);
         else {
             if (brand() % 3 == 0)
-                vec[parent1]->copy(vec[parent2]);
-            vec[parent2]->mutate();
+                vec[parent1]->copy(vec[idx]);
+            vec[idx]->mutate();
         }
     }
+}
+
+//---------------------------------------------------------------
+
+void    population::extinction(int n)
+{
+    for (int i = n; i < count; i++)
+        vec[i]->gen_expression();
 }
 
 //---------------------------------------------------------------
@@ -1037,7 +1061,7 @@ void population::kill_twins()
         float e0 = vec[i]->error;
         float e1 = vec[i-1]->error;
         
-        if (fabs(e0 - e1) < 0.0001) {
+        if (fabs(e0 - e1) < 0.001) {
             vec[i]->gen_expression();
         }
     }
@@ -1142,7 +1166,7 @@ void swap_pop(population *p1, population *p2)
 {
     int         i;
     
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < 10; i++) {
         int i1 = 1+brand()%(p1->count-1);
         int i2 = 1+brand()%(p2->count-1);
         p1->vec[i1]->copy(p2->vec[i2]);
@@ -1151,7 +1175,7 @@ void swap_pop(population *p1, population *p2)
 
 //---------------------------------------------------------------
 
-#define NP  68          //number of populations
+#define NP  18          //number of populations
 
 float tryx(float newg)
 {
@@ -1162,7 +1186,7 @@ float tryx(float newg)
     population  pops[NP];
     
     
-    for (int i = 0; i < 801100; i++) {
+    for (int i = 0; i < 111111; i++) {
         for (int pn = 0; pn < NP; pn++) {
             pops[pn].evaluate(&ev);
             pops[pn].sort_population();
@@ -1171,9 +1195,10 @@ float tryx(float newg)
             pops[pn].crossing(0.4);    // see https://docs.google.com/spreadsheets/d/1TJWPCB-mIWW9WyfOPP8lo4F2v1aETUWIP_Ils68MWtE/edit#gid=0
             pops[pn].mutate(0.2);
             pops[pn].mutate_top(10);
+                
         }
         
-        if (i % 130 == 0) {
+        if (i % 10 == 0) {
             cls(); gotoxy(1,1);
             for (int i = 0; i < NP; i++) {
                 pops[i].evaluate(&ev);
@@ -1196,11 +1221,26 @@ float tryx(float newg)
         p2 = NP/2 + brand() % NP/2;
         swap_pop(&pops[p1], &pops[p2]);
 
-        if (i % 200 == 0) {
-            p1 = brand() % NP;
-            p2 = brand() % NP;
+        if (i % 140 == 0) {
+            p1 = brand() % NP/2;
+            p2 = brand() % NP/2 + NP/2;
             swap_pop(&pops[p1], &pops[p2]);
+            swap_pop(&pops[p2], &pops[p1]);
 
+        }
+        
+        if (i % 300 == 0) {
+            int side = brand()%2;
+            
+            if (side == 0) {
+                for (int k = 0; k < (NP/2); k++)
+                    pops[k].extinction(0);
+            }
+            if (side == 1) {
+                for (int k = NP/2; k < NP; k++)
+                    pops[k].extinction(0);
+            
+            }
         }
     }
     return pops[0].vec[0]->error;
@@ -1210,7 +1250,7 @@ float tryx(float newg)
 
 int main()
 {
-    for (int tt = 0; tt < 1000; tt++) {
+    for (int tt = 0; tt < 1; tt++) {
         float cmd = CMD;
         float t = tryx(cmd);
         printf("%f, %f\n", cmd, t);
